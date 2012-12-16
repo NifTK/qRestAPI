@@ -1,6 +1,6 @@
 /*==============================================================================
 
-  Program: 3D Slicer
+  Program: qRestAPI
 
   Copyright (c) 2010 Kitware Inc.
 
@@ -18,26 +18,28 @@
 
 ==============================================================================*/
 
-#ifndef __qMidasAPI_p_h
-#define __qMidasAPI_p_h
+#ifndef __qXnatAPI_h
+#define __qXnatAPI_h
 
-// qMidasAPI includes
-#include "qRestAPI_p.h"
-#include "qMidasAPI.h"
+#include "qRestAPI.h"
 
-// --------------------------------------------------------------------------
-class qMidasAPIPrivate : public qRestAPIPrivate
+class qXnatAPIPrivate;
+
+/// qXnatAPI is a simple interface class to communicate with an XNAT
+/// server through its REST API.
+class qXnatAPI : public qRestAPI
 {
-  Q_DECLARE_PUBLIC(qMidasAPI);
   Q_OBJECT
 
-  typedef qRestAPIPrivate Superclass;
+  typedef qRestAPI Superclass;
 
 public:
-  qMidasAPIPrivate(qMidasAPI* object);
+  explicit qXnatAPI(QObject*parent = 0);
+  virtual ~qXnatAPI();
 
-  virtual QUrl createUrl(const QString& method, const qRestAPI::Parameters& parameters);
-  virtual QList<QVariantMap> parseResult(const QScriptValue& scriptValue);
+private:
+  Q_DECLARE_PRIVATE(qXnatAPI);
+  Q_DISABLE_COPY(qXnatAPI);
 };
 
 #endif
