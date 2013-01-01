@@ -1,8 +1,8 @@
 /*==============================================================================
 
-  Program: qXnatAPI
+  Library: qRestAPI
 
-  Copyright (c) 2013 Centre for Medical Image Computing, University College London
+  Copyright (c) 2013 University College London, Centre for Medical Image Computing
 
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
@@ -10,8 +10,7 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 
-  This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc.
-  and was partially funded by NIH grant 3P41RR013218-12S1
+  Original author: Miklos Espak <m.espak@ucl.ac.uk>
 
 ==============================================================================*/
 

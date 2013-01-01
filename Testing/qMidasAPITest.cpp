@@ -1,6 +1,6 @@
 /*==============================================================================
 
-  Program: qMidasAPI
+  Library: qRestAPI
 
   Copyright (c) 2010 Kitware Inc.
 

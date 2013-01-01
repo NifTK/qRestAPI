@@ -1,6 +1,6 @@
 /*==============================================================================
 
-  Program: 3D Slicer
+  Library: qRestAPI
 
   Copyright (c) 2010 Kitware Inc.
 

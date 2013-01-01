@@ -35,10 +35,6 @@ QT4_WRAP_CPP(qRestAPI_MOC_OUTPUT ${qRestAPI_MOC_SRCS})
 ADD_LIBRARY(qRestAPI ${qRestAPI_SRCS} ${qRestAPI_MOC_OUTPUT})
 TARGET_LINK_LIBRARIES(qRestAPI ${QT_LIBRARIES})
 
-# !!! An alias for the library name, only for compatibility. Should be removed later. !!!
-ADD_LIBRARY(qMidasAPI ${qRestAPI_SRCS} ${qRestAPI_MOC_OUTPUT})
-TARGET_LINK_LIBRARIES(qMidasAPI ${QT_LIBRARIES})
-
 # To fix compilation problem: relocation R_X86_64_32 against `a local symbol' can not be
 # used when making a shared object; recompile with -fPIC
 IF(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
