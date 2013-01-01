@@ -70,7 +70,17 @@ public:
     const ParametersType& parameters = ParametersType(),
     int maxWaitingTimeInMSecs = 2500);
 
+signals:
+  void errorReceived(QUuid queryId, QString error);
+  void resultReceived(QUuid queryId, QList<QVariantMap> result);
+
+protected:
+  QUrl createUrl(const QString& method, const qRestAPI::Parameters& parameters);
+  void parseResponse(qRestResult* restResult, const QByteArray& response);
+
 private:
+  QScopedPointer<qMidasAPIPrivate> d_ptr;
+
   Q_DECLARE_PRIVATE(qMidasAPI);
   Q_DISABLE_COPY(qMidasAPI);
 };

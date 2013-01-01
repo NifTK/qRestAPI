@@ -22,22 +22,30 @@
 #define __qXnatAPI_p_h
 
 // qXnatAPI includes
-#include "qRestAPI_p.h"
 #include "qXnatAPI.h"
 
+#include <QList>
+#include <QScriptEngine>
+#include <QScriptValue>
+
 // --------------------------------------------------------------------------
-class qXnatAPIPrivate : public qRestAPIPrivate
+class qXnatAPIPrivate : public QObject
 {
   Q_DECLARE_PUBLIC(qXnatAPI);
   Q_OBJECT
 
-  typedef qRestAPIPrivate Superclass;
+  typedef QObject Superclass;
+
+  qXnatAPI* const q_ptr;
+
+  QScriptEngine ScriptEngine;
 
 public:
   qXnatAPIPrivate(qXnatAPI* object);
 
-  virtual QUrl createUrl(const QString& resource, const qRestAPI::Parameters& parameters);
-  virtual QList<QVariantMap> parseResult(const QScriptValue& scriptValue);
+  QList<QVariantMap> parseXmlResponse(qRestResult* restResult, const QByteArray& response);
+
+  QList<QVariantMap> parseJsonResponse(qRestResult* restResult, const QByteArray& response);
 };
 
 #endif

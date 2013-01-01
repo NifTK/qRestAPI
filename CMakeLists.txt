@@ -14,6 +14,7 @@ SET(qRestAPI_SRCS
   qRestAPI.cpp
   qRestAPI.h
   qRestAPI_p.h
+  qRestResult.cpp
   qXnatAPI.cpp
   qXnatAPI.h
   qXnatAPI_p.h
@@ -24,6 +25,7 @@ SET(qRestAPI_MOC_SRCS
   qMidasAPI_p.h
   qRestAPI.h
   qRestAPI_p.h
+  qRestResult.h
   qXnatAPI.h
   qXnatAPI_p.h
   )
@@ -33,10 +35,16 @@ QT4_WRAP_CPP(qRestAPI_MOC_OUTPUT ${qRestAPI_MOC_SRCS})
 ADD_LIBRARY(qRestAPI ${qRestAPI_SRCS} ${qRestAPI_MOC_OUTPUT})
 TARGET_LINK_LIBRARIES(qRestAPI ${QT_LIBRARIES})
 
+# !!! An alias for the library name, only for compatibility. Should be removed later. !!!
+ADD_LIBRARY(qMidasAPI ${qRestAPI_SRCS} ${qRestAPI_MOC_OUTPUT})
+TARGET_LINK_LIBRARIES(qMidasAPI ${QT_LIBRARIES})
+
 # To fix compilation problem: relocation R_X86_64_32 against `a local symbol' can not be
 # used when making a shared object; recompile with -fPIC
 IF(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
   SET_TARGET_PROPERTIES(qRestAPI PROPERTIES COMPILE_FLAGS "-fPIC")
+  # !!! An alias for the library name, only for compatibility. Should be removed later. !!!
+  SET_TARGET_PROPERTIES(qMidasAPI PROPERTIES COMPILE_FLAGS "-fPIC")
 ENDIF()
 
 INCLUDE(CTest)

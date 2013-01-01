@@ -22,22 +22,41 @@
 #define __qMidasAPI_p_h
 
 // qMidasAPI includes
-#include "qRestAPI_p.h"
 #include "qMidasAPI.h"
 
+#include <QList>
+#include <QScriptEngine>
+#include <QScriptValue>
+
 // --------------------------------------------------------------------------
-class qMidasAPIPrivate : public qRestAPIPrivate
+class qMidasAPIPrivate : public QObject
 {
   Q_DECLARE_PUBLIC(qMidasAPI);
   Q_OBJECT
 
-  typedef qRestAPIPrivate Superclass;
+  typedef QObject Superclass;
+
+  qMidasAPI* const q_ptr;
+  QScriptEngine ScriptEngine;
+
+  QString ResponseType;
 
 public:
   qMidasAPIPrivate(qMidasAPI* object);
+};
 
-  virtual QUrl createUrl(const QString& method, const qRestAPI::Parameters& parameters);
-  virtual QList<QVariantMap> parseResult(const QScriptValue& scriptValue);
+// --------------------------------------------------------------------------
+class qMidasAPIResult : public QObject
+{
+  Q_OBJECT
+public:
+  QUuid QueryUuid;
+  QList<QVariantMap> Result;
+  QString Error;
+
+public slots:
+  void setResult(const QUuid& queryUuid, const QList<QVariantMap>& result);
+  void setError(const QUuid& queryUuid, const QString& error);
 };
 
 #endif
