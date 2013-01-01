@@ -21,7 +21,7 @@
 // Qt includes
 #include <QDebug>
 #include <QEventLoop>
-#include <QScriptValueIterator>
+#include <QIODevice>
 #include <QSslSocket>
 #include <QStringList>
 #include <QTimer>
@@ -31,24 +31,7 @@
 #include "qRestAPI.h"
 #include "qRestAPI_p.h"
 
-// --------------------------------------------------------------------------
-void qRestAPIResult::setResult(QUuid queryUuid, const QList<QVariantMap>& result)
-{
-  this->QueryUuid = queryUuid;
-  this->Result = result;
-}
-
-// --------------------------------------------------------------------------
-void qRestAPIResult::setError(const QString& error)
-{
-  this->Error += error;
-}
-
-//// --------------------------------------------------------------------------
-//void qRestAPIResult::setSslError(const QString& sslError)
-//{
-//  this->SslError += sslError;
-//}
+#include "qRestResult.h"
 
 // --------------------------------------------------------------------------
 // qRestAPIPrivate methods
@@ -59,7 +42,6 @@ qRestAPIPrivate::StaticInit qRestAPIPrivate::_staticInit;
 qRestAPIPrivate::qRestAPIPrivate(qRestAPI* object)
   : q_ptr(object)
 {
-  this->ResponseType = "json";
   this->NetworkManager = 0;
   this->TimeOut = 0;
   this->SuppressSslErrors = true;
@@ -86,35 +68,18 @@ void qRestAPIPrivate::init()
           this, SLOT(onSslErrors(QNetworkReply*, QList<QSslError>)));
     }
 #endif
-#if 0
-  QObject::connect(q, SIGNAL(errorReceived(QString)),
-                   this, SLOT(print(QString)));
-  QObject::connect(q, SIGNAL(infoReceived(QString)),
-                   this, SLOT(print(QString)));
-#endif
 }
 
 // --------------------------------------------------------------------------
-QUrl qRestAPIPrivate::createUrl(const QString& resource, const qRestAPI::Parameters& parameters)
+QNetworkReply* qRestAPI::sendRequest(QNetworkAccessManager::Operation operation,
+    const QUrl& url,
+    const qRestAPI::RawHeaders& rawHeaders)
 {
-  QUrl url(this->ServerUrl + resource);
-  foreach(const QString& parameter, parameters.keys())
-    {
-    url.addQueryItem(parameter, parameters[parameter]);
-    }
-  return url;
-}
-
-// --------------------------------------------------------------------------
-QUuid qRestAPIPrivate::postQuery(const QUrl& url, const qRestAPI::RawHeaders& rawHeaders)
-{
-  Q_Q(qRestAPI);
+  Q_D(qRestAPI);
   QNetworkRequest queryRequest;
   queryRequest.setUrl(url);
-  QUuid queryUuid = QUuid::createUuid();
-  q->emit infoReceived("Post query: " + url.toString());
 
-  for (QMapIterator<QByteArray, QByteArray> it(this->DefaultRawHeaders); it.hasNext();)
+  for (QMapIterator<QByteArray, QByteArray> it(d->DefaultRawHeaders); it.hasNext();)
   {
     it.next();
     queryRequest.setRawHeader(it.key(), it.value());
@@ -126,23 +91,54 @@ QUuid qRestAPIPrivate::postQuery(const QUrl& url, const qRestAPI::RawHeaders& ra
     queryRequest.setRawHeader(it.key(), it.value());
   }
 
-  QNetworkReply* queryReply = this->NetworkManager->get(queryRequest);
-  queryReply->setProperty("uuid", queryUuid.toString());
-  if (this->TimeOut > 0)
+  QNetworkReply* queryReply;
+  switch (operation)
+  {
+  case QNetworkAccessManager::GetOperation:
+    queryReply = d->NetworkManager->get(queryRequest);
+    break;
+  case QNetworkAccessManager::DeleteOperation:
+    queryReply = d->NetworkManager->deleteResource(queryRequest);
+    break;
+  case QNetworkAccessManager::PutOperation:
+    queryReply = d->NetworkManager->put(queryRequest, QByteArray());
+    break;
+  case QNetworkAccessManager::PostOperation:
+    queryReply = d->NetworkManager->post(queryRequest, QByteArray());
+    break;
+  default:
+    // TODO
+    return 0;
+  }
+
+  if (d->TimeOut > 0)
     {
     QTimer* timeOut = new QTimer(queryReply);
     timeOut->setSingleShot(true);
     QObject::connect(timeOut, SIGNAL(timeout()),
-                     this, SLOT(queryTimeOut()));
-    timeOut->start(this->TimeOut);
+                     d, SLOT(queryTimeOut()));
+    timeOut->start(d->TimeOut);
     QObject::connect(queryReply, SIGNAL(downloadProgress(qint64,qint64)),
-                     this, SLOT(queryProgress()));
+                     d, SLOT(queryProgress(qint64, qint64)));
+    QObject::connect(queryReply, SIGNAL(uploadProgress(qint64,qint64)),
+                     d, SLOT(queryProgress(qint64, qint64)));
     }
-  return queryUuid;
+
+  QUuid queryId = QUuid::createUuid();
+  queryReply->setProperty("uuid", queryId.toString());
+
+  qRestResult* result = new qRestResult(queryId);
+  d->results[queryId] = result;
+//  QObject::connect(this, SIGNAL(resultReceived(QUuid,QList<QVariantMap>)),
+//                   result, SLOT(setResult(QList<QVariantMap>)));
+//  QObject::connect(this, SIGNAL(errorReceived(QUuid,QString)),
+//                   result, SLOT(setError(QString)));
+
+  return queryReply;
 }
 
 // --------------------------------------------------------------------------
-QVariantMap qRestAPIPrivate::scriptValueToMap(const QScriptValue& value)
+QVariantMap qRestAPI::scriptValueToMap(const QScriptValue& value)
 {
 #if QT_VERSION >= 0x040700
   return value.toVariant().toMap();
@@ -158,7 +154,7 @@ QVariantMap qRestAPIPrivate::scriptValueToMap(const QScriptValue& value)
 }
 
 // --------------------------------------------------------------------------
-void qRestAPIPrivate::appendScriptValueToVariantMapList(QList<QVariantMap>& result, const QScriptValue& data)
+void qRestAPI::appendScriptValueToVariantMapList(QList<QVariantMap>& result, const QScriptValue& data)
 {
   QVariantMap map = scriptValueToMap(data);
   if (!map.isEmpty())
@@ -168,30 +164,21 @@ void qRestAPIPrivate::appendScriptValueToVariantMapList(QList<QVariantMap>& resu
 }
 
 // --------------------------------------------------------------------------
-QList<QVariantMap> qRestAPIPrivate::parseResult(const QScriptValue& scriptValue)
-{
-  QList<QVariantMap> result;
-  return result;
-}
-
-// --------------------------------------------------------------------------
 void qRestAPIPrivate::processReply(QNetworkReply* reply)
 {
   Q_Q(qRestAPI);
-  QUuid uuid(reply->property("uuid").toString());
+  QUuid queryId(reply->property("uuid").toString());
+
+  qRestResult* restResult = results[queryId];
+
   if (reply->error() != QNetworkReply::NoError)
     {
-    q->emit errorReceived(uuid.toString() + ": "  + 
+    restResult->setError(queryId.toString() + ": "  +
                   reply->error() + ": " +
                   reply->errorString());
     }
-  QScriptValue scriptResult =
-    this->ScriptEngine.evaluate("(" + QString(reply->readAll()) + ")");
-  q->emit infoReceived(QString("Parse results for ") + uuid);
-  QList<QVariantMap> result = this->parseResult(scriptResult);
-  q->emit infoReceived(QString("Results for ") + uuid.toString()
-                       + ": " + q->qVariantMapListToString(result));
-  q->emit resultReceived(uuid, result);
+  QByteArray response = reply->readAll();
+  q->parseResponse(restResult, response);
   reply->close();
   reply->deleteLater();
 }
@@ -200,21 +187,26 @@ void qRestAPIPrivate::processReply(QNetworkReply* reply)
 void qRestAPIPrivate::onSslErrors(QNetworkReply* reply, const QList<QSslError>& errors)
 {
   Q_Q(qRestAPI);
-  QString errorString;
-  foreach (const QSslError& error, errors)
-  {
-    if (!errorString.isEmpty())
-    {
-      errorString.append(", ");
-    }
-    errorString.append(error.errorString());
-  }
 
   if (!this->SuppressSslErrors)
   {
-    QString plural(errors.empty() ? "" : "s");
-    QString error = QString("SSL error%1 has occurred: %2").arg(plural).arg(errorString);
-    q->emit errorReceived(error);
+    QString errorString;
+    foreach (const QSslError& error, errors)
+    {
+      if (!errorString.isEmpty())
+      {
+        errorString.append(", ");
+      }
+      errorString.append(error.errorString());
+    }
+
+    QString plural(errors.empty() ? " has" : "s have");
+    QString error = QString("SSL error%1 occurred: %2").arg(plural).arg(errorString);
+
+    QUuid queryId(reply->property("uuid").toString());
+    qRestResult* restResult = results[queryId];
+
+    restResult->setError(error);
   }
   else
   {
@@ -224,13 +216,30 @@ void qRestAPIPrivate::onSslErrors(QNetworkReply* reply, const QList<QSslError>& 
 #endif
 
 // --------------------------------------------------------------------------
-void qRestAPIPrivate::print(const QString& msg)
+void qRestAPIPrivate::queryProgress(qint64 bytesTransmitted, qint64 bytesTotal)
 {
-  qDebug() << msg;
+  Q_Q(qRestAPI);
+  QNetworkReply* reply = qobject_cast<QNetworkReply*>(this->sender());
+  // We received some progress so we postpone the timeout if any.
+  QTimer* timer = reply->findChild<QTimer*>();
+  if (timer)
+    {
+    timer->start();
+    }
 }
 
 // --------------------------------------------------------------------------
-void qRestAPIPrivate::queryProgress()
+void qRestAPIPrivate::downloadProgress(qint64 bytesReceived, qint64 bytesTotal)
+{
+  Q_Q(qRestAPI);
+  QNetworkReply* reply = qobject_cast<QNetworkReply*>(this->sender());
+  QUuid queryId(reply->property("uuid").toString());
+  double progress = static_cast<double>(bytesReceived) / bytesTotal;
+  q->emit progress(queryId, progress);
+}
+
+// --------------------------------------------------------------------------
+void qRestAPIPrivate::uploadProgress(qint64 bytesSent, qint64 bytesTotal)
 {
   Q_Q(qRestAPI);
   QNetworkReply* reply = qobject_cast<QNetworkReply*>(this->sender());
@@ -239,12 +248,9 @@ void qRestAPIPrivate::queryProgress()
     {
     return;
     }
-  // We received some progress so we postpone the timeout if any.
-  QTimer* timer = reply->findChild<QTimer*>();
-  if (timer)
-    {
-    timer->start();
-    }
+  QUuid queryId(reply->property("uuid").toString());
+  double progress = static_cast<double>(bytesSent) / bytesTotal;
+  q->emit progress(queryId, progress);
 }
 
 // --------------------------------------------------------------------------
@@ -270,18 +276,6 @@ qRestAPI::qRestAPI(QObject* _parent)
 {
   Q_D(qRestAPI);
   d->init();
-//  qRegisterMetaType<QUuid>("QUuid");
-//  qRegisterMetaType<QList<QVariantMap> >("QList<QVariantMap>");
-}
-
-qRestAPI::qRestAPI(qRestAPIPrivate* ptr, QObject* _parent)
-  : Superclass(_parent)
-  , d_ptr(ptr)
-{
-  Q_D(qRestAPI);
-  d->init();
-//  qRegisterMetaType<QUuid>("QUuid");
-//  qRegisterMetaType<QList<QVariantMap> >("QList<QVariantMap>");
 }
 
 // --------------------------------------------------------------------------
@@ -297,10 +291,10 @@ QString qRestAPI::serverUrl()const
 }
 
 // --------------------------------------------------------------------------
-void qRestAPI::setServerUrl(const QString& newServerUrl)
+void qRestAPI::setServerUrl(const QString& serverUrl)
 {
   Q_D(qRestAPI);
-  d->ServerUrl = newServerUrl;
+  d->ServerUrl = serverUrl;
 }
 
 // --------------------------------------------------------------------------
@@ -346,49 +340,175 @@ void qRestAPI::setSuppressSslErrors(bool suppressSslErrors)
 }
 
 // --------------------------------------------------------------------------
-QUuid qRestAPI::query(const QString& resource, const Parameters& parameters, const qRestAPI::RawHeaders& rawHeaders)
+QUrl qRestAPI::createUrl(const QString& resource, const qRestAPI::Parameters& parameters)
 {
   Q_D(qRestAPI);
-  QUrl url = d->createUrl(resource, parameters);
-  return d->postQuery(url, rawHeaders);
+  QUrl url(d->ServerUrl + resource);
+  foreach(const QString& parameter, parameters.keys())
+    {
+    url.addQueryItem(parameter, parameters[parameter]);
+    }
+  return url;
 }
 
 // --------------------------------------------------------------------------
-QList<QVariantMap> qRestAPI::synchronousQuery(
-  bool &ok,
-  const QString& resource,
-  const Parameters& parameters,
-  const RawHeaders& rawHeaders)
+void qRestAPI::parseResponse(qRestResult* restResult, const QByteArray& response)
 {
-  this->query(resource, parameters, rawHeaders);
-  qRestAPIResult queryResult;
-  QObject::connect(this, SIGNAL(resultReceived(QUuid,QList<QVariantMap>)),
-                   &queryResult, SLOT(setResult(QUuid,QList<QVariantMap>)));
-  QObject::connect(this, SIGNAL(errorReceived(QString)),
-                   &queryResult, SLOT(setError(QString)));
-  QEventLoop eventLoop;
-  QObject::connect(this, SIGNAL(resultReceived(QUuid,QList<QVariantMap>)),
-                   &eventLoop, SLOT(quit()));
-  // Time out will fire an error which will quit the event loop.
-  QObject::connect(this, SIGNAL(errorReceived(QString)),
-                   &eventLoop, SLOT(quit()));
-  eventLoop.exec();
-  ok = queryResult.Error.isNull();
-  if (!ok)
+  QList<QVariantMap> result;
+  restResult->setResult(result);
+}
+
+// --------------------------------------------------------------------------
+QUuid qRestAPI::get(const QString& resource, const Parameters& parameters, const qRestAPI::RawHeaders& rawHeaders)
+{
+  Q_D(qRestAPI);
+  QUrl url = createUrl(resource, parameters);
+  QNetworkReply* queryReply = sendRequest(QNetworkAccessManager::GetOperation, url, rawHeaders);
+  QUuid queryId = queryReply->property("uuid").toString();
+  return queryId;
+}
+
+// --------------------------------------------------------------------------
+QUuid qRestAPI::get(QIODevice* output, const QString& resource, const Parameters& parameters, const qRestAPI::RawHeaders& rawHeaders)
+{
+  Q_D(qRestAPI);
+
+  QUrl url = createUrl(resource, parameters);
+
+  if (!output->open(QIODevice::WriteOnly))
     {
-    QVariantMap map;
-    map["queryError"] = queryResult.Error;
-    queryResult.Result.push_front(map);
+    QUuid queryId;
+    // TODO How to raise the error? We do not have a qRestResult object yet...
+    //    emit errorReceived(queryId, "Cannot open device for writing.");
+    return queryId;
     }
-  if (queryResult.Result.count() == 0)
+
+  QNetworkReply* queryReply = sendRequest(QNetworkAccessManager::GetOperation, url, rawHeaders);
+  QUuid queryId = QUuid(queryReply->property("uuid").toString());
+  qRestResult* result = new qRestResult(queryId, queryReply);
+  result->ioDevice = output;
+
+  connect(queryReply, SIGNAL(downloadProgress(qint64,qint64)),
+          d, SLOT(downloadProgress(qint64,qint64)));
+  connect(queryReply, SIGNAL(readyRead()),
+          result, SLOT(downloadReadyRead()));
+  connect(queryReply, SIGNAL(finished()),
+          result, SLOT(downloadFinished()));
+
+  return queryId;
+}
+
+// --------------------------------------------------------------------------
+QUuid qRestAPI::download(const QString& fileName, const QString& resource, const Parameters& parameters, const qRestAPI::RawHeaders& rawHeaders)
+{
+  Q_D(qRestAPI);
+
+  QIODevice* output = new QFile(fileName);
+
+  QUuid queryId = get(output, resource, parameters);
+
+  return queryId;
+}
+
+// --------------------------------------------------------------------------
+QUuid qRestAPI::del(const QString& resource, const Parameters& parameters, const qRestAPI::RawHeaders& rawHeaders)
+{
+  Q_D(qRestAPI);
+  QUrl url = createUrl(resource, parameters);
+  QNetworkReply* queryReply = sendRequest(QNetworkAccessManager::DeleteOperation, url, rawHeaders);
+  QUuid queryId = queryReply->property("uuid").toString();
+  return queryId;
+}
+
+// --------------------------------------------------------------------------
+QUuid qRestAPI::post(const QString& resource, const Parameters& parameters, const qRestAPI::RawHeaders& rawHeaders)
+{
+  Q_D(qRestAPI);
+  QUrl url = createUrl(resource, parameters);
+  QNetworkReply* queryReply = sendRequest(QNetworkAccessManager::PostOperation, url, rawHeaders);
+  QUuid queryId = queryReply->property("uuid").toString();
+  return queryId;
+}
+
+// --------------------------------------------------------------------------
+QUuid qRestAPI::put(const QString& resource, const Parameters& parameters, const qRestAPI::RawHeaders& rawHeaders)
+{
+  Q_D(qRestAPI);
+  QUrl url = createUrl(resource, parameters);
+  QNetworkReply* queryReply = sendRequest(QNetworkAccessManager::PutOperation, url, rawHeaders);
+  QUuid queryId = queryReply->property("uuid").toString();
+  return queryId;
+}
+
+// --------------------------------------------------------------------------
+QUuid qRestAPI::upload(const QString& fileName, const QString& resource, const Parameters& parameters, const qRestAPI::RawHeaders& rawHeaders)
+{
+  Q_D(qRestAPI);
+
+  QUuid queryId = QUuid::createUuid();
+
+  QUrl url = createUrl(resource, parameters);
+  QIODevice* input = new QFile(fileName);
+  if (!input->open(QIODevice::ReadOnly))
     {
-    // \tbd
-    Q_ASSERT(queryResult.Result.count());
-    QVariantMap map;
-    map["queryError"] = tr("Unknown error");
-    queryResult.Result.push_front(map);
+//    delete input;
+    QString error =
+        QString("Cannot open file '%1' for reading to upload '%2'.").arg(
+              fileName,
+              url.toEncoded().constData());
+
+//    emit errorReceived(queryId, error);
+    return queryId;
     }
-  return queryResult.Result;
+
+  QNetworkReply* queryReply = sendRequest(QNetworkAccessManager::PutOperation, url, rawHeaders);
+
+  qRestResult* result = new qRestResult(queryId, queryReply);
+  result->ioDevice = input;
+  result->ioDevice->setParent(result);
+
+  connect(queryReply, SIGNAL(uploadProgress(qint64,qint64)),
+          d, SLOT(uploadProgress(qint64,qint64)));
+  connect(queryReply, SIGNAL(finished()),
+          result, SLOT(uploadFinished()));
+  connect(queryReply, SIGNAL(readyWrite()),
+          result, SLOT(uploadReadyWrite()));
+
+  queryReply->setProperty("uuid", queryId.toString());
+  return queryId;
+}
+
+bool qRestAPI::sync(const QUuid& queryId)
+{
+  Q_D(qRestAPI);
+  if (d->results.contains(queryId))
+  {
+    d->results[queryId]->waitForDone();
+    qRestResult* queryResult = d->results.take(queryId);
+    return queryResult->Error.isNull();
+  }
+  return false;
+}
+
+bool qRestAPI::sync(const QUuid& queryId, QList<QVariantMap>& result)
+{
+  Q_D(qRestAPI);
+  result.clear();
+  if (d->results.contains(queryId))
+  {
+    d->results[queryId]->waitForDone();
+    qRestResult* queryResult = d->results.take(queryId);
+    bool ok = queryResult->Error.isNull();
+    if (!ok)
+      {
+      QVariantMap map;
+      map["queryError"] = queryResult->Error;
+      queryResult->Result.push_front(map);
+      }
+    result = queryResult->Result;
+    return ok;
+  }
+  return false;
 }
 
 // --------------------------------------------------------------------------
@@ -399,12 +519,25 @@ QString qRestAPI::qVariantMapListToString(const QList<QVariantMap>& list)
     {
     foreach(const QString& key, map.keys())
       {
-      QString value;
-      value += key;
-      value += ": ";
-      value += map[key].toString();
-      values << value;
+      values << QString("%1: %2").arg(key, map[key].toString());
       }
     }
   return values.join("\n");
 }
+
+// --------------------------------------------------------------------------
+qRestResult* qRestAPI::takeResult(const QUuid& queryId)
+{
+  Q_D(qRestAPI);
+  d->results[queryId]->waitForDone();
+  qRestResult* result = d->results.take(queryId);
+  return result;
+}
+
+//// --------------------------------------------------------------------------
+//void qRestAPIPrivate::onAuthenticationRequired(QNetworkReply* reply, QAuthenticator* authenticator)
+//{
+//  Q_D(qRestAPI);
+//  authenticator->setUser(d->userName);
+//  authenticator->setPassword(d->password);
+//}

@@ -37,7 +37,16 @@ public:
   explicit qXnatAPI(QObject*parent = 0);
   virtual ~qXnatAPI();
 
+  virtual QUuid get(const QString& resource,
+    const Parameters& parameters = Parameters(),
+    const RawHeaders& rawHeaders = RawHeaders());
+
+protected:
+  void parseResponse(qRestResult* restResult, const QByteArray& result);
+
 private:
+  QScopedPointer<qXnatAPIPrivate> d_ptr;
+
   Q_DECLARE_PRIVATE(qXnatAPI);
   Q_DISABLE_COPY(qXnatAPI);
 };

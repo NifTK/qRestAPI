@@ -20,11 +20,25 @@
 
 // Qt includes
 #include <QEventLoop>
+#include <QUrl>
 
 // qMidasAPI includes
 #include "qMidasAPI.h"
 #include "qMidasAPI_p.h"
+#include "qRestResult.h"
 
+// --------------------------------------------------------------------------
+void qMidasAPIResult::setResult(const QUuid& queryUuid, const QList<QVariantMap>& result)
+{
+  this->QueryUuid = queryUuid;
+  this->Result = result;
+}
+
+// --------------------------------------------------------------------------
+void qMidasAPIResult::setError(const QUuid& queryUuid, const QString& error)
+{
+  this->Error += error;
+}
 
 // --------------------------------------------------------------------------
 // qMidasAPIPrivate methods
@@ -32,61 +46,9 @@
 // --------------------------------------------------------------------------
 qMidasAPIPrivate::qMidasAPIPrivate(qMidasAPI* object)
   : Superclass(object)
+  , q_ptr(object)
 {
-}
-
-// --------------------------------------------------------------------------
-QUrl qMidasAPIPrivate::createUrl(const QString& method, const qRestAPI::Parameters& parameters)
-{
-  QUrl url = Superclass::createUrl("/api/" + this->ResponseType, parameters);
-  if (!method.isEmpty())
-    {
-    url.addQueryItem("method", method);
-    }
-  return url;
-}
-
-// --------------------------------------------------------------------------
-QList<QVariantMap> qMidasAPIPrivate::parseResult(const QScriptValue& scriptValue)
-{
-  Q_Q(qMidasAPI);
-  // e.g. {"stat":"ok","code":"0","message":"","data":[{"p1":"v1","p2":"v2",...}]}
-  QList<QVariantMap> result;
-  QScriptValue stat = scriptValue.property("stat");
-  if (stat.toString() != "ok")
-    {
-    QString error = QString("Error while parsing outputs:") +
-      " status: " + scriptValue.property("stat").toString() +
-      " code: " + scriptValue.property("code").toInteger() +
-      " msg: " + scriptValue.property("message").toString();
-    q->emit errorReceived(error);
-    }
-  QScriptValue data = scriptValue.property("data");
-  if (!data.isObject())
-    {
-    if (data.toString().isEmpty())
-      {
-      q->emit errorReceived("No data");
-      }
-    else
-      {
-      q->emit errorReceived( QString("Bad data: ") + data.toString());
-      }
-    }
-  if (data.isArray())
-    {
-    quint32 length = data.property("length").toUInt32();
-    for(quint32 i = 0; i < length; ++i)
-      {
-      appendScriptValueToVariantMapList(result, data.property(i));
-      }
-    }
-  else
-    {
-    appendScriptValueToVariantMapList(result, data);
-    }
-
-  return result;
+  this->ResponseType = "json";
 }
 
 // --------------------------------------------------------------------------
@@ -94,7 +56,9 @@ QList<QVariantMap> qMidasAPIPrivate::parseResult(const QScriptValue& scriptValue
 
 // --------------------------------------------------------------------------
 qMidasAPI::qMidasAPI(QObject* _parent)
-  : Superclass(new qMidasAPIPrivate(this), _parent)
+//  : Superclass(new qMidasAPIPrivate(this), _parent)
+  : Superclass(_parent)
+  , d_ptr(new qMidasAPIPrivate(this))
 {
 }
 
@@ -126,17 +90,17 @@ QList<QVariantMap> qMidasAPI::synchronousQuery(
   qMidasAPI restAPI;
   restAPI.setServerUrl(serverUrl);
   restAPI.setTimeOut(maxWaitingTimeInMSecs);
-  restAPI.query(method, parameters);
-  qRestAPIResult queryResult;
+  QUuid queryUuid = restAPI.get(method, parameters);
+  qMidasAPIResult queryResult;
   QObject::connect(&restAPI, SIGNAL(resultReceived(QUuid,QList<QVariantMap>)),
                    &queryResult, SLOT(setResult(QUuid,QList<QVariantMap>)));
-  QObject::connect(&restAPI, SIGNAL(errorReceived(QString)),
-                   &queryResult, SLOT(setError(QString)));
+  QObject::connect(&restAPI, SIGNAL(errorReceived(QUuid,QString)),
+                   &queryResult, SLOT(setError(QUuid,QString)));
   QEventLoop eventLoop;
   QObject::connect(&restAPI, SIGNAL(resultReceived(QUuid,QList<QVariantMap>)),
                    &eventLoop, SLOT(quit()));
   // Time out will fire an error which will quit the event loop.
-  QObject::connect(&restAPI, SIGNAL(errorReceived(QString)),
+  QObject::connect(&restAPI, SIGNAL(errorReceived(QUuid,QString)),
                    &eventLoop, SLOT(quit()));
   eventLoop.exec();
   ok = queryResult.Error.isNull();
@@ -155,4 +119,67 @@ QList<QVariantMap> qMidasAPI::synchronousQuery(
     queryResult.Result.push_front(map);
     }
   return queryResult.Result;
+}
+
+// --------------------------------------------------------------------------
+QUrl qMidasAPI::createUrl(const QString& method, const qRestAPI::Parameters& parameters)
+{
+  Q_D(qMidasAPI);
+  QString responseType = "json";
+  QUrl url = Superclass::createUrl("/api/" + responseType, parameters);
+  if (!method.isEmpty())
+    {
+    url.addQueryItem("method", method);
+    }
+  return url;
+}
+
+// --------------------------------------------------------------------------
+void qMidasAPI::parseResponse(qRestResult* restResult, const QByteArray& response)
+{
+  Q_D(qMidasAPI);
+  QScriptValue scriptValue = d->ScriptEngine.evaluate("(" + QString(response) + ")");
+
+  QUuid queryId = restResult->queryId();
+
+  // e.g. {"stat":"ok","code":"0","message":"","data":[{"p1":"v1","p2":"v2",...}]}
+  QScriptValue stat = scriptValue.property("stat");
+  if (stat.toString() != "ok")
+    {
+    QString error = QString("Error while parsing outputs:") +
+      " status: " + scriptValue.property("stat").toString() +
+      " code: " + scriptValue.property("code").toInteger() +
+      " msg: " + scriptValue.property("message").toString();
+    restResult->setError(error);
+    emit errorReceived(queryId, error);
+    }
+  QScriptValue data = scriptValue.property("data");
+  if (!data.isObject())
+    {
+    if (data.toString().isEmpty())
+      {
+      restResult->setError("No data");
+      emit errorReceived(queryId, "No data");
+      }
+    else
+      {
+      restResult->setError(QString("Bad data: ") + data.toString());
+      emit errorReceived(queryId, QString("Bad data: ") + data.toString());
+      }
+    }
+  QList<QVariantMap> result;
+  if (data.isArray())
+    {
+    quint32 length = data.property("length").toUInt32();
+    for(quint32 i = 0; i < length; ++i)
+      {
+      qRestAPI::appendScriptValueToVariantMapList(result, data.property(i));
+      }
+    }
+  else
+    {
+    qRestAPI::appendScriptValueToVariantMapList(result, data);
+    }
+  restResult->setResult(result);
+  emit resultReceived(queryId, result);
 }

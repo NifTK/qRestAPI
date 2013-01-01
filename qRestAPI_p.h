@@ -22,16 +22,20 @@
 #define __qRestAPI_p_h
 
 // Qt includes
+#include <QFile>
+#if QT_VERSION >= 0x050000
 #include <QHash>
+#endif
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #ifndef QT_NO_OPENSSL
   #include <QSslError>
 #endif
-#include <QScriptEngine>
 
 // qRestAPI includes
 #include "qRestAPI.h"
+
+class QIODevice;
 
 // --------------------------------------------------------------------------
 class qRestAPIPrivate : public QObject
@@ -40,7 +44,6 @@ class qRestAPIPrivate : public QObject
 
   Q_DECLARE_PUBLIC(qRestAPI);
 
-protected:
   qRestAPI* const q_ptr;
 
 private:
@@ -57,56 +60,38 @@ private:
 public:
   qRestAPIPrivate(qRestAPI* object);
 
-protected:
   virtual void init();
-
-public:
-  virtual QUrl createUrl(const QString& method, const qRestAPI::Parameters& parameters);
-//  virtual QUrl createUrlMidas(const QString& method, const qRestAPI::Parameters& parameters);
-  QUuid postQuery(const QUrl& queryUrl, const qRestAPI::RawHeaders& rawHeaders = qRestAPI::RawHeaders());
-
-  virtual QList<QVariantMap> parseResult(const QScriptValue& scriptValue);
-
-  static QString qVariantMapToString(const QList<QVariantMap>& result);
-  static QVariantMap scriptValueToMap(const QScriptValue& value);
-  static void appendScriptValueToVariantMapList(QList<QVariantMap>& result, const QScriptValue& data);
 
 public slots:
   void processReply(QNetworkReply* reply);
-  void print(const QString& msg);
-protected slots:
   /// Called when a query hasn't had any progress for a given TimeOut time.
   /// Note: sender() is used.
   void queryTimeOut();
-  void queryProgress();
+  void queryProgress(qint64 bytesReceived, qint64 bytesTotal);
+  void downloadProgress(qint64 bytesReceived, qint64 bytesTotal);
+  void uploadProgress(qint64 bytesSent, qint64 bytesTotal);
+
 #ifndef QT_NO_OPENSSL
   void onSslErrors(QNetworkReply* reply, const QList<QSslError>& errors);
 #endif
 
+//  void onAuthenticationRequired(QNetworkReply* reply, QAuthenticator* authenticator);
+
 public:
   QString ServerUrl;
-  QString ResponseType;
 
   QNetworkAccessManager* NetworkManager;
-  QScriptEngine ScriptEngine;
   int TimeOut;
   qRestAPI::RawHeaders DefaultRawHeaders;
   bool SuppressSslErrors;
-};
 
-// --------------------------------------------------------------------------
-class qRestAPIResult : public QObject
-{
-  Q_OBJECT
-public:
-  QUuid QueryUuid;
-  QList<QVariantMap> Result;
-  QString Error;
-//  QString SslError;
-public slots:
-  void setResult(QUuid queryUuid, const QList<QVariantMap>& result);
-  void setError(const QString& error);
-//  void setSslError(const QString& sslError);
+// In Qt5 QHash should be used. QUuid does not have a hash function in Qt4,
+// so the QUuid's would be converted to QString what is expensive.
+#if QT_VERSION >= 0x050000
+  QHash<QUuid, qRestResult*> results;
+#else
+  QMap<QUuid, qRestResult*> results;
+#endif
 };
 
 #endif
