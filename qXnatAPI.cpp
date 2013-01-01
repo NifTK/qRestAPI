@@ -151,14 +151,5 @@ void qXnatAPI::parseResponse(qRestResult* restResult, const QByteArray& response
     restResult->setError(QString("Bad data: ") + response);
     }
 
-  qDebug() << "result.size():" << result.size();
-  foreach (QVariantMap map, result)
-  {
-    QMapIterator<QString, QVariant> it(map);
-    for (it.next(); it.hasNext(); it.next())
-    {
-      qDebug() << it.key() << ":" << it.value();
-    }
-  }
   restResult->setResult(result);
 }
