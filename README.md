@@ -1,3 +1,9 @@
+=======
+qRestAPI
+========
+
+Simple Qt library allowing to easily synchronously or asynchronously query a REST server.
+
 # OVERVIEW
 
 qRestAPI is a cross-platform [Qt-based](http://doc.qt.nokia.com/4.7/qt4-7-intro.html) library 
