@@ -21,7 +21,6 @@
 #include <qNetworkReply>
 #include <QRegExp>
 #include <QUrl>
-#include <qDebug>
 
 // --------------------------------------------------------------------------
 // qXnatAPIPrivate methods
@@ -136,7 +135,6 @@ void qXnatAPI::parseResponse(qRestResult* restResult, const QByteArray& response
     // Other operations return a json description of an object.
     // E.g. GET query of the list of subjects
     result = d->parseJsonResponse(restResult, response);
-    qDebug() << "result.size():" << result.size();
     }
   else if (identifierPattern.exactMatch(response))
     {
@@ -151,14 +149,5 @@ void qXnatAPI::parseResponse(qRestResult* restResult, const QByteArray& response
     restResult->setError(QString("Bad data: ") + response);
     }
 
-  qDebug() << "result.size():" << result.size();
-  foreach (QVariantMap map, result)
-  {
-    QMapIterator<QString, QVariant> it(map);
-    for (it.next(); it.hasNext(); it.next())
-    {
-      qDebug() << it.key() << ":" << it.value();
-    }
-  }
   restResult->setResult(result);
 }
