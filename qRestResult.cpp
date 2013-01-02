@@ -75,15 +75,6 @@ void qRestResult::setResult()
 // --------------------------------------------------------------------------
 void qRestResult::setResult(const QList<QVariantMap>& result)
 {
-//  qDebug() << "result.size():" << result.size();
-//  foreach (QVariantMap map, result)
-//  {
-//    QMapIterator<QString, QVariant> it(map);
-//    for (it.next(); it.hasNext(); it.next())
-//    {
-//      qDebug() << it.key() << ":" << it.value();
-//    }
-//  }
   this->Result.clear();
   for (int i = 0; i < result.size(); ++i)
     this->Result.push_back(result[i]);
