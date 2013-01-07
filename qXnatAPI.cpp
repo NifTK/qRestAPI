@@ -18,7 +18,7 @@
 #include "qXnatAPI.h"
 #include "qXnatAPI_p.h"
 #include "qRestResult.h"
-#include <qNetworkReply>
+#include <QNetworkReply>
 #include <QRegExp>
 #include <QUrl>
 
