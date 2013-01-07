@@ -39,8 +39,6 @@ TARGET_LINK_LIBRARIES(qRestAPI ${QT_LIBRARIES})
 # used when making a shared object; recompile with -fPIC
 IF(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
   SET_TARGET_PROPERTIES(qRestAPI PROPERTIES COMPILE_FLAGS "-fPIC")
-  # !!! An alias for the library name, only for compatibility. Should be removed later. !!!
-  SET_TARGET_PROPERTIES(qMidasAPI PROPERTIES COMPILE_FLAGS "-fPIC")
 ENDIF()
 
 INCLUDE(CTest)
